@@ -1,0 +1,228 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Cato VPN Manager\n"
+"Report-Msgid-Bugs-To: https://github.com/kaleidoscopeit/cato-vpn-manager-gnome-extension/issues\n"
+"POT-Creation-Date: 2026-09-05 00:00+0200\n"
+"PO-Revision-Date: 2026-09-05 00:00+0200\n"
+"Last-Translator: Kaleidoscopeit\n"
+"Language-Team: Italian\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "About and help"
+msgstr "Informazioni e aiuto"
+
+msgid "Add a routing profile to describe an expected route configuration."
+msgstr "Aggiungi un profilo di routing per descrivere una configurazione di route attesa."
+
+msgid "Add routing profile"
+msgstr "Aggiungi profilo di routing"
+
+msgid "Added routes: %s - removed routes: %s"
+msgstr "Route aggiunte: %s - route rimosse: %s"
+
+msgid "Define expected route configurations for troubleshooting and advanced administration."
+msgstr "Definisci configurazioni di route attese per troubleshooting e amministrazione avanzata."
+
+msgid "Define expected route configurations for troubleshooting and advanced administration. Install the optional helper to apply them from the menu."
+msgstr "Definisci configurazioni di route attese per troubleshooting e amministrazione avanzata. Installa l'helper opzionale per applicarle dal menu."
+
+msgid "Cancel"
+msgstr "Annulla"
+
+msgid "Cato disconnected"
+msgstr "Cato non connesso"
+
+msgid "Cato disconnection failed"
+msgstr "Disconnessione Cato non riuscita"
+
+msgid "Cato does not appear authenticated or the VPN interface is unavailable."
+msgstr "Cato non risulta autenticato o l'interfaccia VPN non è disponibile."
+
+msgid "Cato is waiting for authentication"
+msgstr "Cato in attesa di autenticazione"
+
+msgid "Cato service is stopped; status was not queried."
+msgstr "Servizio Cato spento; stato non interrogato."
+
+msgid "Cato service stopped"
+msgstr "Servizio Cato spento"
+
+msgid "Cato status details"
+msgstr "Dettagli stato Cato"
+
+msgid "Cato update available"
+msgstr "Aggiornamento Cato disponibile"
+
+msgid "Cato update completed"
+msgstr "Aggiornamento Cato completato"
+
+msgid "Cato update failed"
+msgstr "Aggiornamento Cato non riuscito"
+
+msgid "Cato VPN Manager"
+msgstr "Cato VPN Manager"
+
+msgid "Cato connected"
+msgstr "Cato connesso"
+
+msgid "Close"
+msgstr "Chiudi"
+
+msgid "Command timed out"
+msgstr "Comando scaduto"
+
+msgid "Connect"
+msgstr "Connetti"
+
+msgid "Connect with new authentication"
+msgstr "Connetti con nuova autenticazione"
+
+msgid "Copy"
+msgstr "Copia"
+
+msgid "Delete"
+msgstr "Elimina"
+
+msgid "Delete routing profile"
+msgstr "Elimina profilo di routing"
+
+msgid "Delete routing profile?"
+msgstr "Eliminare il profilo di routing?"
+
+msgid "Disconnect"
+msgstr "Disconnetti"
+
+msgid "Edit routing profile"
+msgstr "Modifica profilo di routing"
+
+msgid "Enter a name for the routing profile."
+msgstr "Inserisci un nome per il profilo di routing."
+
+msgid "Enter at least one route to route through Cato."
+msgstr "Inserisci almeno una route da instradare tramite Cato."
+
+msgid "Helper exited with an error"
+msgstr "Helper terminato con errore"
+
+msgid "Helper detected"
+msgstr "Helper rilevato"
+
+msgid "Helper not installed"
+msgstr "Helper non installato"
+
+msgid "Installed version: %s. "
+msgstr "Versione installata: %s. "
+
+msgid "Invalid destination: %s"
+msgstr "Destinazione non valida: %s"
+
+msgid "Invalid routing profile"
+msgstr "Profilo di routing non valido"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "New routing profile"
+msgstr "Nuovo profilo di routing"
+
+msgid "New version: %s. Open the extension menu to start the update."
+msgstr "Nuova versione: %s. Apri il menu dell'estensione per avviare l'aggiornamento."
+
+msgid "No routing profile configured"
+msgstr "Nessun profilo di routing configurato"
+
+msgid "Optional helper"
+msgstr "Helper opzionale"
+
+msgid "Preferences"
+msgstr "Preferenze"
+
+msgid "Routing profile not applied"
+msgstr "Profilo di routing non applicato"
+
+msgid "Help file not found."
+msgstr "File di aiuto non trovato."
+
+msgid "Reading Cato status..."
+msgstr "Lettura dello stato Cato..."
+
+msgid "Refresh"
+msgstr "Aggiorna"
+
+msgid "Refresh status"
+msgstr "Aggiorna stato"
+
+msgid "Restart service"
+msgstr "Riavvia servizio"
+
+msgid "Route %s cannot be added and removed by the same routing profile."
+msgstr "La route %s non può essere aggiunta e rimossa dallo stesso profilo di routing."
+
+msgid "Routes to remove from the Cato interface"
+msgstr "Route da rimuovere dall'interfaccia Cato"
+
+msgid "Save"
+msgstr "Salva"
+
+msgid "Service operation failed: %s"
+msgstr "Operazione sul servizio non riuscita: %s"
+
+msgid "Start service"
+msgstr "Avvia servizio"
+
+msgid "Status not detected yet."
+msgstr "Stato non ancora rilevato."
+
+msgid "Status: %s"
+msgstr "Stato: %s"
+
+msgid "Status: loading..."
+msgstr "Stato: caricamento..."
+
+msgid "Stop service"
+msgstr "Ferma servizio"
+
+msgid "Routes to route through Cato"
+msgstr "Route da instradare tramite Cato"
+
+msgid "Routing profiles can be applied from the extension menu."
+msgstr "I profili di routing possono essere applicati dal menu dell'estensione."
+
+msgid "Routing profiles can be configured and recognized, but not applied."
+msgstr "I profili di routing possono essere configurati e riconosciuti, ma non applicati."
+
+msgid "Routing profiles"
+msgstr "Profili di routing"
+
+msgid "The command did not return any data."
+msgstr "Il comando non ha restituito dati."
+
+msgid "The routing profile is indistinguishable from \"%s\"."
+msgstr "Il profilo di routing è indistinguibile da \"%s\"."
+
+msgid "Unable to read Cato status"
+msgstr "Impossibile leggere lo stato Cato"
+
+msgid "Unable to read Cato status: %s"
+msgstr "Impossibile leggere lo stato Cato: %s"
+
+msgid "Unknown error"
+msgstr "Errore sconosciuto"
+
+msgid "Update Cato client"
+msgstr "Aggiorna client Cato"
+
+msgid "Update Cato client: %s"
+msgstr "Aggiorna client Cato: %s"
+
+msgid "Update completed."
+msgstr "Aggiornamento terminato."
+
+msgid "Update failed"
+msgstr "Aggiornamento non riuscito"
+
+msgid "Update to version %s completed."
+msgstr "Aggiornamento alla versione %s terminato."

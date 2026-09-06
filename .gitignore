@@ -1,0 +1,8 @@
+/dist/
+/locale/
+/schemas/gschemas.compiled
+/*.shell-extension.zip
+.env
+.env.*
+*~
+*.swp

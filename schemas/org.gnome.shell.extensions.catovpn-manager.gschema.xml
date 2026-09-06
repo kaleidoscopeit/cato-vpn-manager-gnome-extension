@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.catovpn-manager"
+          path="/org/gnome/shell/extensions/catovpn-manager/">
+    <key name="route-profiles" type="a(ssasas)">
+      <default>[]</default>
+      <summary>Configured routing profiles</summary>
+      <description>
+        Profiles for advanced debugging, troubleshooting or administration.
+        Each profile contains an identifier, a name, routes to remove from
+        the Cato interface and routes to add to the Cato interface.
+      </description>
+    </key>
+  </schema>
+</schemalist>

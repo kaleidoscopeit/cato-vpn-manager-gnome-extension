@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Kaleidoscopeit</vendor>
+  <vendor_url>https://github.com/kaleidoscopeit/cato-vpn-manager-gnome-extension</vendor_url>
+
+  <action id="com.github.kaleidoscopeit.catovpn-manager.apply-routes">
+    <description>Apply a Cato VPN routing profile</description>
+    <message>Authentication is required to change Cato VPN routes</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/cato-vpn-route-helper</annotate>
+  </action>
+</policyconfig>

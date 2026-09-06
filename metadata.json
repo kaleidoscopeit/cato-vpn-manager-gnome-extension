@@ -1,0 +1,9 @@
+{
+  "name": "Cato VPN Manager",
+  "description": "Control the Cato SDP client from GNOME Shell, inspect connection status, show client update notifications, manage advanced routing profiles and copy status details to the clipboard on request.",
+  "uuid": "catovpn-manager@kaleidoscopeit.github.com",
+  "gettext-domain": "catovpn-manager",
+  "shell-version": ["50"],
+  "settings-schema": "org.gnome.shell.extensions.catovpn-manager",
+  "url": "https://github.com/kaleidoscopeit/cato-vpn-manager-gnome-extension"
+}

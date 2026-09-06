@@ -1,0 +1,25 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GNOME tooling
+        run: sudo apt-get update && sudo apt-get install -y gnome-shell gjs libglib2.0-bin make unzip
+      - name: Validate and package
+        run: make package
+      - name: Check extension archive
+        run: |
+          unzip -l dist/*.shell-extension.zip
+          if unzip -Z1 dist/*.shell-extension.zip | grep -E '(^|/)(optional-helper|tests|tools|po|\.github|\.git|Makefile|.*\.png|schemas/gschemas\.compiled)(/|$)'; then
+            echo "Unexpected development, generated or privileged content in extension archive" >&2
+            exit 1
+          fi
