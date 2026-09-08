@@ -7,7 +7,7 @@
 - keep the public README in English and load dedicated localized help content in the about dialog;
 - detect the Cato interface from `tun device`;
 - add GSettings-backed routing profiles and a preferences editor;
-- add full status output, refresh and copy actions;
+- add full status output and refresh actions;
 - detect Cato client updates and expose a manual update action;
 - size Shell status and help dialogs against the active monitor;
 - wrap dialog content in scrollable containers compatible with GNOME Shell;

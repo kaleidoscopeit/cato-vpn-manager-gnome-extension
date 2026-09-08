@@ -23,7 +23,7 @@ trademarks of Cato Networks Ltd.
 - controls `cato-client.service` from the Shell menu;
 - starts, stops and reauthenticates the Cato SDP client;
 - reads the authoritative Cato state from `cato-sdp status`;
-- shows a readable status details window with copy and refresh actions;
+- shows a readable status details window with refresh actions;
 - notifies when the Cato client reports an available update;
 - optionally applies routing profiles through a separately installed Polkit
   helper.

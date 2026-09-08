@@ -80,9 +80,6 @@ msgstr "Connetti"
 msgid "Connect with new authentication"
 msgstr "Connetti con nuova autenticazione"
 
-msgid "Copy"
-msgstr "Copia"
-
 msgid "Delete"
 msgstr "Elimina"
 

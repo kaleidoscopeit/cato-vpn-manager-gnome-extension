@@ -74,13 +74,6 @@ class StatusPopup extends ModalDialog.ModalDialog {
             action: () => this.refresh(),
         });
         this.addButton({
-            label: _('Copy'),
-            action: () => St.Clipboard.get_default().set_text(
-                St.ClipboardType.CLIPBOARD,
-                this._output
-            ),
-        });
-        this.addButton({
             label: _('Close'),
             action: () => this.close(),
             key: Clutter.KEY_Escape,
