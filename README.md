@@ -107,6 +107,16 @@ make package
 The generated package excludes privileged helpers, tests, tooling and local
 development files.
 
+## Distribution
+
+Every push and pull request builds the extension and stores the ZIP as a
+short-lived GitHub Actions artifact. Creating a tag such as `v1.0.0` also
+creates a GitHub Release with the generated ZIP attached.
+
+The ZIP from the release can be uploaded manually to
+`extensions.gnome.org`. The optional route helper is distributed separately
+and is never included in the extension package.
+
 ## License
 
 Distributed under the MIT license. See [`LICENSE`](LICENSE).

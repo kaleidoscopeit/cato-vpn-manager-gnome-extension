@@ -1,8 +1,9 @@
-name: Validate
+name: Validate and package
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,8 +19,37 @@ jobs:
         run: make package
       - name: Check extension archive
         run: |
-          unzip -l dist/*.shell-extension.zip
+          archive=$(find dist -maxdepth 1 -name '*.shell-extension.zip' -type f -print -quit)
+          test -n "$archive"
+          unzip -l "$archive"
           if unzip -Z1 dist/*.shell-extension.zip | grep -E '(^|/)(optional-helper|tests|tools|po|\.github|\.git|Makefile|.*\.png|schemas/gschemas\.compiled)(/|$)'; then
             echo "Unexpected development, generated or privileged content in extension archive" >&2
             exit 1
           fi
+
+      - name: Upload extension package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cato-vpn-manager-${{ github.event_name }}-${{ github.run_number }}
+          path: dist/*.shell-extension.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download extension package
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cato-vpn-manager-*
+          path: release-dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-dist/*.shell-extension.zip --generate-notes
