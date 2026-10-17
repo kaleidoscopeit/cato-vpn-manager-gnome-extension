@@ -12,7 +12,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install GNOME tooling
         run: sudo apt-get update && sudo apt-get install -y gnome-shell gjs gettext libglib2.0-bin make unzip
       - name: Validate and package
@@ -27,7 +27,7 @@ jobs:
             exit 1
           fi
       - name: Upload extension package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cato-vpn-manager-${{ github.event_name }}-${{ github.run_number }}
           path: dist/*.shell-extension.zip
@@ -42,9 +42,9 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Download extension package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: cato-vpn-manager-*
           path: release-dist
