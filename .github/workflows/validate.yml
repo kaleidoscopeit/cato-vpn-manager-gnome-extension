@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install GNOME tooling
-        run: sudo apt-get update && sudo apt-get install -y gnome-shell gjs libglib2.0-bin make unzip
+        run: sudo apt-get update && sudo apt-get install -y gnome-shell gjs gettext libglib2.0-bin make unzip
       - name: Validate and package
         run: make package
       - name: Check extension archive
@@ -26,7 +26,6 @@ jobs:
             echo "Unexpected development, generated or privileged content in extension archive" >&2
             exit 1
           fi
-
       - name: Upload extension package
         uses: actions/upload-artifact@v4
         with:
@@ -44,14 +43,12 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Download extension package
         uses: actions/download-artifact@v4
         with:
           pattern: cato-vpn-manager-*
           path: release-dist
           merge-multiple: true
-
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -6,23 +6,19 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-function getDialogSize() {
-    const monitor = Main.layoutManager.primaryMonitor ?? {width: 1024, height: 768};
-    return {
-        width: Math.min(720, Math.max(460, monitor.width - 160)),
-        height: Math.min(500, Math.max(300, monitor.height - 300)),
-    };
-}
+import {getDialogSize} from './dialog-utils.js';
 
 export const AboutPopup = GObject.registerClass(
 class AboutPopup extends ModalDialog.ModalDialog {
     _init(extensionPath, onClosed = null) {
         super._init({styleClass: 'cato-dialog'});
+        this._closed = false;
+        this._disposed = false;
         this._onClosed = onClosed;
-        const dialogSize = getDialogSize();
+        this._helpCancellable = new Gio.Cancellable();
+        const dialogSize = getDialogSize(720, 500);
 
         const mainBox = new St.BoxLayout({
             vertical: true,
@@ -74,10 +70,22 @@ class AboutPopup extends ModalDialog.ModalDialog {
         });
     }
 
-    close(timestamp = global.get_current_time()) {
-        super.close(timestamp);
+    close() {
+        this._closed = true;
+        this._helpCancellable.cancel();
+        super.close();
+    }
+
+    destroy() {
+        if (this._disposed)
+            return;
+        this._disposed = true;
+        this._closed = true;
+        this._helpCancellable.cancel();
+        this.popModal();
         this._onClosed?.();
         this._onClosed = null;
+        super.destroy();
     }
 
     _getLocalizedHelpPath(extensionPath) {
@@ -112,15 +120,16 @@ class AboutPopup extends ModalDialog.ModalDialog {
 
     _loadHelp(path) {
         const file = Gio.File.new_for_path(path);
-        file.load_contents_async(null, (source, result) => {
+        file.load_contents_async(this._helpCancellable, (source, result) => {
             try {
                 const [success, contents] = source.load_contents_finish(result);
-                if (success) {
+                if (success && !this._closed) {
                     const text = new TextDecoder().decode(contents);
                     this._helpLabel.clutter_text.set_markup(this._parseMarkdown(text));
                 }
             } catch (_error) {
-                this._helpLabel.text = _('Help file not found.');
+                if (!this._closed)
+                    this._helpLabel.text = _('Help file not found.');
             }
         });
     }

@@ -1,4 +1,4 @@
-import {classifyRoutes, parseCatoStatus, stripTerminalSequences} from '../cato-state.js';
+import {classifyRoutes, normalizeDestination, parseCatoStatus, stripTerminalSequences} from '../cato-state.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -85,4 +85,13 @@ assert(
     'a later disconnected message must override an earlier state'
 );
 
+assert(normalizeDestination('192.0.2.1/32') === '192.0.2.1', 'host routes normalize');
+assert(normalizeDestination('192.0.2.1/24') === null, 'host bits are rejected');
+assert(normalizeDestination('0.0.0.0/0') === 'default', 'default route normalizes');
+assert(!stripTerminalSequences('\x1b]0;x\x1b\\state = STATE_AUTHENTICATED\n').includes('\x1b'), 'OSC sequences are stripped');
+const hostProfile = {id: 'host', name: 'Host', deleteRoutes: [], addRoutes: ['192.0.2.1/32']};
+assert(
+    classifyRoutes([{dst: '192.0.2.1', dev: 'tun0'}], 'tun0', [hostProfile]).mode === 'profile',
+    'route aliases must match'
+);
 print('State parser and route classifier tests passed.');

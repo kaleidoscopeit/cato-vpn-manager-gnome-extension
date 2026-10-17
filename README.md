@@ -107,6 +107,22 @@ make package
 The generated package excludes privileged helpers, tests, tooling and local
 development files.
 
+### Test the working copy
+
+When this repository is already installed as the extension directory, reload
+the working copy after changing JavaScript or UI files:
+
+```sh
+make check
+gnome-extensions disable catovpn-manager@kaleidoscopeit.github.com
+gnome-extensions enable catovpn-manager@kaleidoscopeit.github.com
+```
+
+Use `journalctl --user -f -o cat` in another terminal to inspect GNOME Shell
+messages while testing. Do not install the generated ZIP over this repository:
+the archive intentionally excludes source-only files and would replace the
+working tree with the distributable extension contents.
+
 ## Distribution
 
 Every push and pull request builds the extension and stores the ZIP as a

@@ -1,40 +1,22 @@
 # Optional route helper
 
-The extension does not require this component for Cato connection and status
-monitoring. The helper only enables applying routing profiles for debugging,
-troubleshooting and advanced administration scenarios.
+The extension does not require this component to control Cato or read status.
+It is installed separately and is never included in the extension ZIP.
 
-This helper is optional and is not part of the ZIP uploaded to
-extensions.gnome.org.
-
-## Install
-
-Review the helper and policy, then run:
+Install after reviewing the helper and policy:
 
 ```sh
 cd optional-helper
 sudo ./install-helper.sh
 ```
 
-The extension detects the root-owned executable at
-`/usr/libexec/cato-vpn-route-helper` when it starts. Disable and enable the
-extension after installing or removing it.
+The helper accepts IPv4 destinations for table `main`, validates its inputs and
+serializes applications with a lock in `/run`. It saves native route dumps for
+requested removals before making changes. On command failure or a handled
+HUP/INT/TERM signal it removes additions it made and restores saved routes.
+If restoration itself fails, it retains the recovery directory under `/run` and
+reports its path. Inspect the live interface and route state before manually
+using `ip -4 route restore` on those dumps.
 
-The Makefile provides the same install target for packagers or advanced users:
-
-```sh
-sudo make install
-```
-
-## Remove
-
-```sh
-cd optional-helper
-sudo ./uninstall-helper.sh
-```
-
-The equivalent Makefile target is:
-
-```sh
-sudo make uninstall
-```
+This is best-effort recovery: power loss, SIGKILL, interface removal and
+changes by other network managers can prevent a complete rollback.

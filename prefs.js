@@ -1,21 +1,13 @@
 import Adw from 'gi://Adw';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-const PROFILE_TYPE = 'a(ssasas)';
-const ROUTE_HELPER = '/usr/libexec/cato-vpn-route-helper';
+import {normalizeDestination} from './cato-state.js';
+import {detectRouteHelper, format, unpackProfiles} from './shared.js';
 
-function unpackProfiles(settings) {
-    return settings.get_value('route-profiles').deepUnpack().map(profile => ({
-        id: profile[0],
-        name: profile[1],
-        deleteRoutes: profile[2],
-        addRoutes: profile[3],
-    }));
-}
+const PROFILE_TYPE = 'a(ssasas)';
 
 function saveProfiles(settings, profiles) {
     const tuples = profiles.map(profile => [
@@ -32,33 +24,11 @@ function parseRoutes(text) {
         .split(/[,\n]/)
         .map(route => route.trim())
         .filter(Boolean)
-        .map(route => route === '0.0.0.0/0' ? 'default' : route))];
-}
-
-function isValidDestination(destination) {
-    if (destination === 'default')
-        return true;
-
-    const [address, prefixText] = destination.split('/');
-    if (destination.split('/').length > 2)
-        return false;
-
-    const octets = address.split('.');
-    if (octets.length !== 4 || octets.some(octet =>
-        !/^\d{1,3}$/.test(octet) || Number(octet) > 255))
-        return false;
-
-    return prefixText === undefined ||
-        (/^\d{1,2}$/.test(prefixText) && Number(prefixText) <= 32);
+        .map(route => normalizeDestination(route) ?? route))];
 }
 
 function sameRoutes(first, second) {
     return [...first].sort().join('\n') === [...second].sort().join('\n');
-}
-
-function format(text, ...values) {
-    let index = 0;
-    return text.replace(/%s/g, () => values[index++]);
 }
 
 export default class CatoVpnPreferences extends ExtensionPreferences {
@@ -75,7 +45,7 @@ export default class CatoVpnPreferences extends ExtensionPreferences {
         });
         window.add(page);
 
-        const helperAvailable = this._isRouteHelperAvailable();
+        const helperAvailable = detectRouteHelper();
         const helperGroup = new Adw.PreferencesGroup({
             title: _('Optional helper'),
         });
@@ -119,24 +89,6 @@ export default class CatoVpnPreferences extends ExtensionPreferences {
         });
 
         this._rebuildProfiles();
-    }
-
-    _isRouteHelperAvailable() {
-        try {
-            const file = Gio.File.new_for_path(ROUTE_HELPER);
-            const info = file.query_info(
-                'access::can-execute,unix::uid,unix::mode',
-                Gio.FileQueryInfoFlags.NONE,
-                null
-            );
-            const owner = info.get_attribute_uint32('unix::uid');
-            const mode = info.get_attribute_uint32('unix::mode');
-            const securePermissions = (mode & 0o022) === 0;
-            return info.get_attribute_boolean('access::can-execute') &&
-                owner === 0 && securePermissions;
-        } catch (_error) {
-            return false;
-        }
     }
 
     _rebuildProfiles() {
@@ -299,7 +251,7 @@ export default class CatoVpnPreferences extends ExtensionPreferences {
             return _('Enter at least one route to route through Cato.');
 
         const invalid = [...candidate.deleteRoutes, ...candidate.addRoutes]
-            .find(route => !isValidDestination(route));
+            .find(route => normalizeDestination(route) === null);
         if (invalid)
             return format(_('Invalid destination: %s'), invalid);
 
@@ -309,8 +261,7 @@ export default class CatoVpnPreferences extends ExtensionPreferences {
 
         const indistinguishable = unpackProfiles(this._settings).find(item =>
             item.id !== currentId &&
-            sameRoutes(item.addRoutes, candidate.addRoutes) &&
-            sameRoutes(item.deleteRoutes, candidate.deleteRoutes)
+            sameRoutes(item.addRoutes, candidate.addRoutes)
         );
         if (indistinguishable)
             return format(_('The routing profile is indistinguishable from "%s".'), indistinguishable.name);

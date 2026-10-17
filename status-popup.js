@@ -4,31 +4,22 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-function getDialogSize() {
-    const monitor = Main.layoutManager.primaryMonitor ?? {width: 1024, height: 768};
-    return {
-        width: Math.min(760, Math.max(460, monitor.width - 160)),
-        height: Math.min(520, Math.max(300, monitor.height - 300)),
-    };
-}
-
-function format(text, ...values) {
-    let index = 0;
-    return text.replace(/%s/g, () => values[index++]);
-}
+import {getDialogSize} from './dialog-utils.js';
+import {format} from './shared.js';
 
 export const StatusPopup = GObject.registerClass(
 class StatusPopup extends ModalDialog.ModalDialog {
     _init({initialOutput, refresh, onClosed}) {
         super._init({styleClass: 'cato-dialog'});
+        this._closed = false;
+        this._disposed = false;
 
         this._refreshCallback = refresh;
         this._onClosed = onClosed;
         this._output = initialOutput || _('Status not detected yet.');
-        const dialogSize = getDialogSize();
+        const dialogSize = getDialogSize(760, 520);
 
         const mainBox = new St.BoxLayout({
             vertical: true,
@@ -81,23 +72,41 @@ class StatusPopup extends ModalDialog.ModalDialog {
     }
 
     async refresh() {
+        if (this._closed || this._refreshing)
+            return;
+        this._refreshing = true;
         this._outputLabel.text = _('Reading Cato status...');
         try {
             const output = await this._refreshCallback();
             this.setOutput(output || _('The command did not return any data.'));
         } catch (error) {
             this.setOutput(format(_('Unable to read Cato status: %s'), error.message));
+        } finally {
+            this._refreshing = false;
         }
     }
 
     setOutput(output) {
+        if (this._closed)
+            return;
         this._output = output;
         this._outputLabel.text = output;
     }
 
-    close(timestamp = global.get_current_time()) {
-        super.close(timestamp);
+    close() {
+        this._closed = true;
+        super.close();
+    }
+
+    destroy() {
+        if (this._disposed)
+            return;
+        this._disposed = true;
+        this._closed = true;
+        this._refreshCallback = null;
+        this.popModal();
         this._onClosed?.();
         this._onClosed = null;
+        super.destroy();
     }
 });

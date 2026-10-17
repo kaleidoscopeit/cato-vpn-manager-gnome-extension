@@ -1,116 +1,105 @@
 #!/bin/bash
-
 set -u
-
+umask 077
 IP=/usr/sbin/ip
 
-usage() {
-    echo "Usage: cato-vpn-route-helper apply --interface DEVICE [--delete DEST]... [--add DEST]..." >&2
-    exit 2
-}
-
-valid_interface() {
-    [[ $1 =~ ^[A-Za-z0-9_.:-]{1,15}$ ]] && [[ -d /sys/class/net/$1 ]]
-}
-
-valid_destination() {
-    local destination=$1
-    local address prefix octet
+usage() { echo "Usage: cato-vpn-route-helper apply --interface DEVICE [--delete DEST]... [--add DEST]..." >&2; exit 2; }
+valid_interface() { [[ $1 =~ ^[A-Za-z0-9_.:-]{1,15}$ ]] && [[ -d /sys/class/net/$1 ]]; }
+normalize_destination() {
+    local destination=$1 address prefix=32 octet number=0 mask
     local -a octets
-
-    [[ $destination == default ]] && return 0
+    [[ $destination == default ]] && { echo default; return; }
     [[ $destination =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ ]] || return 1
-
     address=${destination%%/*}
-    if [[ $destination == */* ]]; then
-        prefix=${destination##*/}
-        ((10#$prefix <= 32)) || return 1
-    fi
-
+    if [[ $destination == */* ]]; then prefix=$((10#${destination##*/})); fi
+    ((prefix <= 32)) || return 1
     IFS=. read -r -a octets <<< "$address"
     for octet in "${octets[@]}"; do
         ((10#$octet <= 255)) || return 1
+        number=$(((number << 8) | 10#$octet))
     done
+    mask=$(((0xffffffff << (32 - prefix)) & 0xffffffff))
+    (( (number & mask) == number )) || return 1
+    if ((prefix == 0)); then echo default
+    else
+        printf '%d.%d.%d.%d' "$((10#${octets[0]}))" "$((10#${octets[1]}))" "$((10#${octets[2]}))" "$((10#${octets[3]}))"
+        ((prefix == 32)) || printf '/%d' "$prefix"
+        printf '\n'
+    fi
 }
 
-[[ ${EUID:-$(id -u)} -eq 0 ]] || {
-    echo "This helper must be run through pkexec." >&2
-    exit 1
-}
-
+[[ ${EUID:-$(id -u)} -eq 0 ]] || { echo "This helper must be run through pkexec." >&2; exit 1; }
 [[ ${1:-} == apply ]] || usage
 shift
-
 interface=
-declare -a delete_routes=()
-declare -a add_routes=()
-
+declare -a delete_routes=() add_routes=()
 while (($#)); do
     case $1 in
-        --interface)
-            (($# >= 2)) || usage
-            interface=$2
-            shift 2
-            ;;
-        --delete)
-            (($# >= 2)) || usage
-            delete_routes+=("$2")
-            shift 2
-            ;;
-        --add)
-            (($# >= 2)) || usage
-            add_routes+=("$2")
-            shift 2
-            ;;
-        *)
-            usage
-            ;;
+        --interface) (($# >= 2)) || usage; interface=$2; shift 2 ;;
+        --delete) (($# >= 2)) || usage; delete_routes+=("$2"); shift 2 ;;
+        --add) (($# >= 2)) || usage; add_routes+=("$2"); shift 2 ;;
+        *) usage ;;
     esac
 done
-
-valid_interface "$interface" || {
-    echo "Invalid or unavailable interface: $interface" >&2
-    exit 2
-}
-
+valid_interface "$interface" || { echo "Invalid or unavailable interface: $interface" >&2; exit 2; }
 ((${#delete_routes[@]} + ${#add_routes[@]} > 0)) || usage
-for destination in "${delete_routes[@]}" "${add_routes[@]}"; do
-    valid_destination "$destination" || {
-        echo "Invalid route destination: $destination" >&2
-        exit 2
-    }
-done
-
-declare -a added_routes=()
-
-rollback_added_routes() {
-    local index
-    for ((index=${#added_routes[@]} - 1; index >= 0; index--)); do
-        "$IP" route del "${added_routes[index]}" dev "$interface" >/dev/null 2>&1 || true
-    done
-}
-
-# Add missing routes first so a failed profile does not remove the existing
-# Cato paths before the replacement paths are available.
-for destination in "${add_routes[@]}"; do
-    if "$IP" route show "$destination" dev "$interface" | /usr/bin/grep -q .; then
-        continue
-    fi
-
-    if ! "$IP" route replace "$destination" dev "$interface"; then
-        rollback_added_routes
-        exit 1
-    fi
-    added_routes+=("$destination")
-done
-
+declare -A additions=() deletions=()
 for destination in "${delete_routes[@]}"; do
-    if "$IP" route show "$destination" dev "$interface" | /usr/bin/grep -q .; then
-        "$IP" route del "$destination" dev "$interface" || {
-            rollback_added_routes
-            exit 1
-        }
-    fi
+    normalized=$(normalize_destination "$destination") || { echo "Invalid route destination: $destination" >&2; exit 2; }
+    deletions[$normalized]=1
+done
+for destination in "${add_routes[@]}"; do
+    normalized=$(normalize_destination "$destination") || { echo "Invalid route destination: $destination" >&2; exit 2; }
+    [[ ! ${deletions[$normalized]+present} ]] || { echo "Cannot add and remove the same route: $normalized" >&2; exit 2; }
+    additions[$normalized]=1
 done
 
+exec 9>/run/cato-vpn-route-helper.lock || exit 1
+/usr/bin/flock -n 9 || { echo "Another route profile is being applied." >&2; exit 1; }
+workdir=$(/usr/bin/mktemp -d /run/cato-vpn-route-helper.XXXXXXXX) || exit 1
+declare -a added_routes=() snapshots=()
+committed=0
+interrupted=0
+trap 'interrupted=1' HUP INT TERM
+cleanup() {
+    local status=$? failed=0 index snapshot
+    trap - EXIT
+    trap '' HUP INT TERM
+    if (( ! committed )); then
+        for ((index=${#added_routes[@]} - 1; index >= 0; index--)); do
+            "$IP" -4 route del "${added_routes[index]}" dev "$interface" table main || failed=1
+        done
+        for snapshot in "${snapshots[@]}"; do
+            "$IP" -4 route restore < "$snapshot" || failed=1
+        done
+    fi
+    if ((failed)); then
+        echo "Route rollback incomplete; recovery dumps retained in $workdir" >&2
+        status=1
+    else
+        /usr/bin/rm -f -- "$workdir"/*.routes
+        /usr/bin/rmdir -- "$workdir"
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+for destination in "${!deletions[@]}"; do
+    snapshot=$workdir/${#snapshots[@]}.routes
+    "$IP" -4 route save table main exact "$destination" dev "$interface" > "$snapshot" || exit 1
+    snapshots+=("$snapshot")
+    ((interrupted == 0)) || exit 1
+done
+for destination in "${!additions[@]}"; do
+    existing=$("$IP" -4 route show table main exact "$destination" dev "$interface") || exit 1
+    ((interrupted == 0)) || exit 1
+    [[ -z $existing ]] || continue
+    "$IP" -4 route add "$destination" dev "$interface" table main || exit 1
+    added_routes+=("$destination")
+    ((interrupted == 0)) || exit 1
+done
+for destination in "${!deletions[@]}"; do
+    "$IP" -4 route flush table main exact "$destination" dev "$interface" || exit 1
+    ((interrupted == 0)) || exit 1
+done
+committed=1
 echo "Route profile applied to $interface."

@@ -10,16 +10,15 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {
     classifyRoutes,
-    normalizeDestination,
     parseCatoStatus,
-    stripTerminalSequences,
 } from './cato-state.js';
+import {detectRouteHelper, format, unpackProfiles} from './shared.js';
+import {runCommand} from './command.js';
 
 const CATO_SDP = '/usr/bin/cato-sdp';
 const SYSTEMCTL = '/usr/bin/systemctl';
 const IP = '/usr/sbin/ip';
 const PKEXEC = '/usr/bin/pkexec';
-const ROUTE_HELPER = '/usr/libexec/cato-vpn-route-helper';
 
 const NETWORK_EVENT_DEBOUNCE_SECONDS = 3;
 const STATUS_PROBE_COOLDOWN_SECONDS = 15;
@@ -53,68 +52,6 @@ const SystemdUnitProxy = Gio.DBusProxy.makeProxyWrapper(`
   </interface>
 </node>`);
 
-function unpackProfiles(settings) {
-    return settings.get_value('route-profiles').deepUnpack().map(profile => ({
-        id: profile[0],
-        name: profile[1],
-        deleteRoutes: profile[2].map(normalizeDestination),
-        addRoutes: profile[3].map(normalizeDestination),
-    }));
-}
-
-function format(text, ...values) {
-    let index = 0;
-    return text.replace(/%s/g, () => values[index++]);
-}
-
-function runCommand(argv, timeoutSeconds = 15, cancellable = new Gio.Cancellable()) {
-    return new Promise((resolve, reject) => {
-        let process;
-        try {
-            process = Gio.Subprocess.new(
-                argv,
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-            );
-        } catch (error) {
-            reject(error);
-            return;
-        }
-
-        let timedOut = false;
-        let timeoutId = GLib.timeout_add_seconds(
-            GLib.PRIORITY_DEFAULT,
-            timeoutSeconds,
-            () => {
-                timedOut = true;
-                timeoutId = 0;
-                cancellable.cancel();
-                process.force_exit();
-                return GLib.SOURCE_REMOVE;
-            }
-        );
-        const cancelSignal = cancellable.connect(() => process.force_exit());
-
-        process.communicate_utf8_async(null, cancellable, (source, result) => {
-            if (timeoutId) {
-                GLib.Source.remove(timeoutId);
-                timeoutId = 0;
-            }
-            cancellable.disconnect(cancelSignal);
-
-            try {
-                const [, stdout, stderr] = source.communicate_utf8_finish(result);
-                resolve({
-                    successful: source.get_successful(),
-                    stdout: stdout ?? '',
-                    stderr: stderr ?? '',
-                });
-            } catch (error) {
-                reject(timedOut ? new Error(_('Command timed out')) : error);
-            }
-        });
-    });
-}
-
 const Indicator = GObject.registerClass(
 class Indicator extends PanelMenu.Button {
     _init(extension, settings) {
@@ -123,7 +60,7 @@ class Indicator extends PanelMenu.Button {
         this._extension = extension;
         this._settings = settings;
         this._destroyed = false;
-        this._refreshInProgress = false;
+        this._refreshPromise = null;
         this._lastStatusProbe = 0;
         this._notifiedUpdateVersion = null;
         this._statusPopup = null;
@@ -131,6 +68,11 @@ class Indicator extends PanelMenu.Button {
         this._clientUpdateItem = null;
         this._activeCommands = new Set();
         this._networkDebounceId = 0;
+        this._probeDeadline = 0;
+        this._probeForced = false;
+        this._profileInProgress = false;
+        this._clientUpdateInProgress = false;
+        this._serviceGeneration = 0;
         this._networkMonitor = null;
         this._networkMonitorStream = null;
         this._networkMonitorCancellable = null;
@@ -152,11 +94,12 @@ class Indicator extends PanelMenu.Button {
             updateAvailable: false,
         };
 
-        this._helperPath = this._detectRouteHelper();
+        this._helperPath = detectRouteHelper();
         this._profiles = unpackProfiles(this._settings);
 
+        this._iconPath = STATUS_ICONS.serviceOff;
         this._icon = new St.Icon({
-            gicon: this._createStatusIcon(STATUS_ICONS.serviceOff),
+            gicon: this._createStatusIcon(this._iconPath),
             style_class: 'cato-panel-icon',
         });
         this.add_child(this._icon);
@@ -167,7 +110,7 @@ class Indicator extends PanelMenu.Button {
         this._syncIconSize();
         this._buildMenu();
 
-        this._settingsSignal = this._settings.connect('changed', () => {
+        this._settingsSignal = this._settings.connect('changed::route-profiles', () => {
             this._profiles = unpackProfiles(this._settings);
             this._rebuildProfileMenu();
             this._classifyRoutes();
@@ -178,6 +121,8 @@ class Indicator extends PanelMenu.Button {
             if (!isOpen)
                 return;
 
+            // Opening the menu refreshes old state without polling Cato in the
+            // background; each status call can produce daemon log output.
             const age = (GLib.get_monotonic_time() - this._lastStatusProbe) /
                 GLib.USEC_PER_SEC;
             if (age > MENU_STATUS_MAX_AGE_SECONDS)
@@ -306,30 +251,12 @@ class Indicator extends PanelMenu.Button {
 
     _runCommand(argv, timeoutSeconds = 15) {
         const cancellable = new Gio.Cancellable();
+        if (this._destroyed)
+            cancellable.cancel();
         this._activeCommands.add(cancellable);
-        return runCommand(argv, timeoutSeconds, cancellable).finally(() => {
+        return runCommand(argv, timeoutSeconds, cancellable, _('Command timed out')).finally(() => {
             this._activeCommands.delete(cancellable);
         });
-    }
-
-    _detectRouteHelper() {
-        try {
-            const file = Gio.File.new_for_path(ROUTE_HELPER);
-            const info = file.query_info(
-                'access::can-execute,unix::uid,unix::mode',
-                Gio.FileQueryInfoFlags.NONE,
-                null
-            );
-            const owner = info.get_attribute_uint32('unix::uid');
-            const mode = info.get_attribute_uint32('unix::mode');
-            const securePermissions = (mode & 0o022) === 0;
-            return info.get_attribute_boolean('access::can-execute') &&
-                owner === 0 && securePermissions
-                ? ROUTE_HELPER
-                : null;
-        } catch (_error) {
-            return null;
-        }
     }
 
     _startCato(resetCredentials) {
@@ -337,34 +264,38 @@ class Indicator extends PanelMenu.Button {
         if (resetCredentials)
             argv.push('--reset-cred');
 
-        try {
-            Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-            this._scheduleStatusProbe(3, true);
-        } catch (error) {
-            Main.notifyError(_('Cato VPN Manager'), error.message);
-        }
+        this._runAction(argv, _('Cato VPN Manager'), 300);
+        this._scheduleStatusProbe(3, true);
     }
 
-    async _runAction(argv, errorTitle) {
+    async _runAction(argv, errorTitle, timeoutSeconds = 30) {
         try {
-            const result = await this._runCommand(argv, 30);
+            const result = await this._runCommand(argv, timeoutSeconds);
+            if (this._destroyed)
+                return;
             if (!result.successful) {
                 const message = result.stderr.trim() || result.stdout.trim() || _('Unknown error');
                 Main.notifyError(errorTitle, message);
             }
         } catch (error) {
-            Main.notifyError(errorTitle, error.message);
+            if (!this._destroyed)
+                Main.notifyError(errorTitle, error.message);
         } finally {
             this._scheduleStatusProbe(2, true);
         }
     }
 
     async _applyProfile(profile) {
-        if (!this._helperPath)
+        if (!this._helperPath || this._profileInProgress || this._destroyed)
             return;
 
-        if (this._state.catoState !== 'STATE_AUTHENTICATED' || !this._state.tunDevice) {
+        this._profileInProgress = true;
+        try {
+            // An explicit route change warrants a fresh status check even if
+            // the cached state still says authenticated.
             await this._refreshAuthoritative(true);
+            if (this._destroyed)
+                return;
             if (this._state.catoState !== 'STATE_AUTHENTICATED' || !this._state.tunDevice) {
                 Main.notifyError(
                     _('Routing profile not applied'),
@@ -372,22 +303,22 @@ class Indicator extends PanelMenu.Button {
                 );
                 return;
             }
-        }
 
-        const argv = [
-            PKEXEC,
-            this._helperPath,
-            'apply',
-            '--interface',
-            this._state.tunDevice,
-        ];
-        for (const route of profile.deleteRoutes)
-            argv.push('--delete', route);
-        for (const route of profile.addRoutes)
-            argv.push('--add', route);
+            const argv = [
+                PKEXEC,
+                this._helperPath,
+                'apply',
+                '--interface',
+                this._state.tunDevice,
+            ];
+            for (const route of profile.deleteRoutes)
+                argv.push('--delete', route);
+            for (const route of profile.addRoutes)
+                argv.push('--add', route);
 
-        try {
             const result = await this._runCommand(argv, 120);
+            if (this._destroyed)
+                return;
             if (!result.successful) {
                 const message = result.stderr.trim() || result.stdout.trim() || _('Helper exited with an error');
                 Main.notifyError(_('Routing profile not applied'), message);
@@ -397,7 +328,10 @@ class Indicator extends PanelMenu.Button {
             await this._refreshRoutes();
             this._updateUi();
         } catch (error) {
-            Main.notifyError(_('Routing profile not applied'), error.message);
+            if (!this._destroyed)
+                Main.notifyError(_('Routing profile not applied'), error.message);
+        } finally {
+            this._profileInProgress = false;
         }
     }
 
@@ -412,14 +346,20 @@ class Indicator extends PanelMenu.Button {
                 [SYSTEMCTL, 'is-active', 'cato-client.service'],
                 5
             );
+            if (this._destroyed)
+                return;
             this._setServiceActive(result.successful && result.stdout.trim() === 'active');
         } catch (_error) {
+            if (this._destroyed)
+                return;
             this._setServiceActive(false);
             this._state.catoState = 'STATE_UNKNOWN';
         }
     }
 
     _setServiceActive(active) {
+        if (active !== this._state.serviceActive)
+            this._serviceGeneration++;
         this._state.serviceActive = active;
         if (!active) {
             this._state.catoState = 'STATE_STOPPED';
@@ -442,10 +382,18 @@ class Indicator extends PanelMenu.Button {
             return;
         }
 
+        const generation = this._serviceGeneration;
+        const device = this._state.tunDevice;
         try {
-            const result = await this._runCommand([IP, '-j', 'route', 'show', 'table', 'main'], 5);
+            const result = await this._runCommand([IP, '-4', '-j', 'route', 'show', 'table', 'main'], 5);
+            if (this._destroyed)
+                return;
+            if (generation !== this._serviceGeneration || device !== this._state.tunDevice)
+                return;
             this._state.routes = result.successful ? JSON.parse(result.stdout) : [];
         } catch (_error) {
+            if (this._destroyed)
+                return;
             this._state.routes = [];
         }
         this._classifyRoutes();
@@ -467,62 +415,75 @@ class Indicator extends PanelMenu.Button {
         this._state.activeProfile = classification.activeProfile;
     }
 
-    async _refreshAuthoritative(force = false) {
-        if (this._destroyed || this._refreshInProgress)
-            return this._state.rawStatus;
-
-        const now = GLib.get_monotonic_time();
-        const elapsed = (now - this._lastStatusProbe) / GLib.USEC_PER_SEC;
+    _refreshAuthoritative(force = false) {
+        if (this._destroyed)
+            return Promise.resolve(this._state.rawStatus);
+        // Concurrent callers await the same result instead of receiving stale
+        // cached text while a status command is already running.
+        if (this._refreshPromise)
+            return this._refreshPromise;
+        const elapsed = (GLib.get_monotonic_time() - this._lastStatusProbe) / GLib.USEC_PER_SEC;
         if (!force && elapsed < STATUS_PROBE_COOLDOWN_SECONDS)
-            return this._state.rawStatus;
+            return Promise.resolve(this._state.rawStatus);
+        this._lastStatusProbe = GLib.get_monotonic_time();
+        this._refreshPromise = this._readStatus().finally(() => {
+            this._refreshPromise = null;
+        });
+        return this._refreshPromise;
+    }
 
-        this._refreshInProgress = true;
-        this._lastStatusProbe = now;
+    async _readStatus() {
+        let generation;
         try {
             await this._refreshService();
+            if (this._destroyed)
+                return '';
             if (!this._state.serviceActive) {
                 this._updateUi();
                 return this._state.rawStatus;
             }
-
+            generation = this._serviceGeneration;
             const result = await this._runCommand([CATO_SDP, 'status'], 15);
-            const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
-            const cleanedOutput = stripTerminalSequences(output).trimEnd();
-            this._state.rawStatus = cleanedOutput;
-
-            if (result.successful || output) {
-                const parsed = parseCatoStatus(cleanedOutput);
-                this._state.catoState = parsed.state;
-                this._state.tunDevice = parsed.tunDevice;
-                this._state.installedVersion = parsed.installedVersion;
-                this._state.availableVersion = parsed.availableVersion;
-                this._state.updateAvailable = parsed.updateAvailable;
-            } else {
-                this._state.catoState = 'STATE_UNKNOWN';
-                this._state.tunDevice = null;
-                this._state.installedVersion = null;
-                this._state.availableVersion = null;
-                this._state.updateAvailable = false;
-            }
-
+            if (this._destroyed)
+                return '';
+            // A service-stop event may have arrived while the command ran.
+            if (!this._state.serviceActive || generation !== this._serviceGeneration)
+                return this._state.rawStatus;
+            const parsed = parseCatoStatus([result.stdout, result.stderr].filter(Boolean).join('\n'));
+            this._state.rawStatus = parsed.rawStatus;
+            this._state.catoState = parsed.state;
+            this._state.tunDevice = parsed.tunDevice;
+            this._state.installedVersion = parsed.installedVersion;
+            this._state.availableVersion = parsed.availableVersion;
+            this._state.updateAvailable = parsed.updateAvailable;
             await this._refreshRoutes();
+            if (this._destroyed)
+                return '';
             this._notifyClientUpdateIfNeeded();
             this._statusPopup?.setOutput(this._state.rawStatus);
             this._updateUi();
             return this._state.rawStatus;
         } catch (error) {
+            if (this._destroyed)
+                return '';
+            if (generation !== undefined && generation !== this._serviceGeneration)
+                return this._state.rawStatus;
             const message = format(_('Unable to read Cato status: %s'), error.message);
             this._state.rawStatus = message;
             this._state.catoState = 'STATE_UNKNOWN';
+            this._state.tunDevice = null;
+            this._state.routes = [];
+            this._state.updateAvailable = false;
+            this._classifyRoutes();
             this._statusPopup?.setOutput(message);
             this._updateUi();
             return message;
-        } finally {
-            this._refreshInProgress = false;
         }
     }
 
     _startServiceMonitor() {
+        // Watch systemd's unit property instead of repeatedly running
+        // systemctl; _refreshService() is the fallback before this is ready.
         new SystemdManagerProxy(
             Gio.DBus.system,
             'org.freedesktop.systemd1',
@@ -565,6 +526,8 @@ class Indicator extends PanelMenu.Button {
     }
 
     _startNetworkMonitor() {
+        // Route and link events prompt a delayed status check. Their output is
+        // only a trigger; cato-sdp remains the source for connection state.
         try {
             this._networkMonitor = Gio.Subprocess.new(
                 [IP, 'monitor', 'link', 'route'],
@@ -605,23 +568,34 @@ class Indicator extends PanelMenu.Button {
     _scheduleStatusProbe(delaySeconds, force) {
         if (this._destroyed)
             return;
-
+        const now = GLib.get_monotonic_time();
+        const earliest = force ? now : this._lastStatusProbe + STATUS_PROBE_COOLDOWN_SECONDS * GLib.USEC_PER_SEC;
+        const deadline = Math.max(now + delaySeconds * GLib.USEC_PER_SEC, earliest);
+        this._probeForced ||= force;
+        // Keep the earliest pending deadline so a busy network cannot postpone
+        // a probe forever or downgrade a request following an explicit action.
+        if (this._networkDebounceId && this._probeDeadline <= deadline)
+            return;
         if (this._networkDebounceId)
             GLib.Source.remove(this._networkDebounceId);
-
-        if (!force) {
-            const elapsed = (GLib.get_monotonic_time() - this._lastStatusProbe) /
-                GLib.USEC_PER_SEC;
-            const cooldownRemaining = Math.ceil(STATUS_PROBE_COOLDOWN_SECONDS - elapsed);
-            delaySeconds = Math.max(delaySeconds, cooldownRemaining);
-        }
-
-        this._networkDebounceId = GLib.timeout_add_seconds(
-            GLib.PRIORITY_DEFAULT,
-            delaySeconds,
-            () => {
+        this._probeDeadline = deadline;
+        this._networkDebounceId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT, Math.max(1, Math.ceil((deadline - now) / 1000)), () => {
                 this._networkDebounceId = 0;
-                this._refreshAuthoritative(force);
+                const forced = this._probeForced;
+                this._probeForced = false;
+                // An action may finish during an older status query. Arrange a
+                // fresh read after it instead of dropping the newer request.
+                if (this._refreshPromise) {
+                    this._refreshPromise.then(() => this._scheduleStatusProbe(0, forced));
+                } else if (!forced && GLib.get_monotonic_time() - this._lastStatusProbe <
+                    STATUS_PROBE_COOLDOWN_SECONDS * GLib.USEC_PER_SEC) {
+                    // A manual refresh may have moved the cooldown since this
+                    // timer was armed. Keep the event pending until it expires.
+                    this._scheduleStatusProbe(0, false);
+                } else {
+                    this._refreshAuthoritative(forced);
+                }
                 return GLib.SOURCE_REMOVE;
             }
         );
@@ -652,8 +626,10 @@ class Indicator extends PanelMenu.Button {
             statusText = _('Cato connected');
         }
 
-        this._icon.gicon = this._createStatusIcon(iconName);
-        this._syncIconSize();
+        if (this._iconPath !== iconName) {
+            this._iconPath = iconName;
+            this._icon.gicon = this._createStatusIcon(iconName);
+        }
         this._statusItem.label.text = format(_('Status: %s'), statusText);
 
         if (this._clientUpdateItem) {
@@ -665,7 +641,6 @@ class Indicator extends PanelMenu.Button {
                 this._clientUpdateItem.label.text = _('Update Cato client');
             }
         }
-
     }
 
     _createStatusIcon(relativePath) {
@@ -708,9 +683,15 @@ class Indicator extends PanelMenu.Button {
     }
 
     async _updateCatoClient() {
+        if (this._destroyed || this._clientUpdateInProgress)
+            return;
+        this._clientUpdateInProgress = true;
+        this._clientUpdateItem.setSensitive(false);
         const version = this._state.availableVersion;
         try {
             const result = await this._runCommand([CATO_SDP, 'update'], 300);
+            if (this._destroyed)
+                return;
             if (!result.successful) {
                 const message = result.stderr.trim() || result.stdout.trim() || _('Update failed');
                 Main.notifyError(_('Cato update failed'), message);
@@ -724,8 +705,12 @@ class Indicator extends PanelMenu.Button {
                     : _('Update completed.')
             );
         } catch (error) {
-            Main.notifyError(_('Cato update failed'), error.message);
+            if (!this._destroyed)
+                Main.notifyError(_('Cato update failed'), error.message);
         } finally {
+            this._clientUpdateInProgress = false;
+            if (!this._destroyed)
+                this._clientUpdateItem.setSensitive(true);
             this._scheduleStatusProbe(2, true);
         }
     }
@@ -733,7 +718,7 @@ class Indicator extends PanelMenu.Button {
     async _openStatusPopup() {
         try {
             const {StatusPopup} = await import('./status-popup.js');
-            if (this._destroyed)
+            if (this._destroyed || this._statusPopup)
                 return;
 
             this._statusPopup = new StatusPopup({
@@ -750,7 +735,8 @@ class Indicator extends PanelMenu.Button {
             if (!this._state.rawStatus || age > 5)
                 this._statusPopup.refresh();
         } catch (error) {
-            Main.notifyError(_('Cato VPN Manager'), error.message);
+            if (!this._destroyed)
+                Main.notifyError(_('Cato VPN Manager'), error.message);
         }
     }
 
@@ -760,20 +746,25 @@ class Indicator extends PanelMenu.Button {
                 return;
 
             const {AboutPopup} = await import('./about-popup.js');
-            if (!this._destroyed)
+            if (!this._destroyed && !this._aboutPopup)
                 this._aboutPopup = new AboutPopup(
                     this._extension.path,
                     () => this._aboutPopup = null
                 );
             this._aboutPopup?.open();
         } catch (error) {
-            Main.notifyError(_('Cato VPN Manager'), error.message);
+            if (!this._destroyed)
+                Main.notifyError(_('Cato VPN Manager'), error.message);
         }
     }
 
     destroy() {
+        if (this._destroyed)
+            return;
         this._destroyed = true;
 
+        // GNOME may enable and disable extensions repeatedly in one session.
+        // Cancel pending work and destroy dialogs before removing the actor.
         if (this._networkDebounceId)
             GLib.Source.remove(this._networkDebounceId);
         if (this._settingsSignal)
@@ -790,8 +781,8 @@ class Indicator extends PanelMenu.Button {
         for (const cancellable of this._activeCommands)
             cancellable.cancel();
         this._activeCommands.clear();
-        this._statusPopup?.close();
-        this._aboutPopup?.close();
+        this._statusPopup?.destroy();
+        this._aboutPopup?.destroy();
 
         this._networkMonitorStream = null;
         this._networkMonitor = null;

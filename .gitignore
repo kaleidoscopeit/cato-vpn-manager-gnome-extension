@@ -4,5 +4,6 @@
 /*.shell-extension.zip
 .env
 .env.*
+/vaults/
 *~
 *.swp
